@@ -24,7 +24,7 @@ if __name__ == "__main__":
     )
     deploiement_train = flow_train.to_deployment(
         name="ml-pipeline-train",
-        cron="0 9 * * *",  # tous les jours à 09h00
+                cron="10 11 * * *",  # TEST : 12h10 heure de Tunis (11h10 UTC)
     )
     deploiement_evaluate = flow_evaluate.to_deployment(
         name="ml-pipeline-evaluate",  # sans planification : lancement manuel

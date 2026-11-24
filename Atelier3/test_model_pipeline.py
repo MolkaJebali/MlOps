@@ -3,11 +3,17 @@ test_model_pipeline.py — Tests du projet « Alerte Suivi Glycémique » (Ateli
 
   1. Tests unitaires    : chaque fonction isolée, sans le vrai jeu de données
   2. Tests fonctionnels : le pipeline complet sur un échantillon du vrai CSV
-  3. Tests de sécurité  : entrées invalides ou malveillantes rejetées proprement
+  3. Tests de robustesse : entrées invalides rejetées proprement
+  4. Tests qualité/sécurité : Flake8 (qualité) et Bandit (sécurité du code)
 
 Lancement :  python -m pytest -q test_model_pipeline.py
 """
+
+import json
 import os
+import subprocess  # nosec B404
+import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -25,6 +31,10 @@ from model_pipeline import (
 )
 
 ERREURS_ATTENDUES = (FileNotFoundError, ValueError)
+
+ROOT = Path(__file__).parent
+PROJECT_FILES = ["model_pipeline.py", "main.py", "pipeline_prefect.py"]
+TEST_FILE = "test_model_pipeline.py"
 
 
 # ----------------------------------------------------------------------------
@@ -153,9 +163,9 @@ class TestFonctionnels:
 
 
 # ----------------------------------------------------------------------------
-# 3. TESTS DE SÉCURITÉ (validation des entrées)
+# 3. TESTS DE ROBUSTESSE (validation des entrées ; sécurité du code = Bandit)
 # ----------------------------------------------------------------------------
-class TestSecurite:
+class TestRobustesse:
     def test_csv_vide_rejete(self, tmp_path):
         vide = tmp_path / "vide.csv"
         vide.write_text("")
@@ -182,3 +192,47 @@ class TestSecurite:
     def test_arguments_cli_inconnus_rejetes(self):
         with pytest.raises(SystemExit):
             main_module.main(["--option-inexistante"])
+
+
+# ----------------------------------------------------------------------------
+# 4. QUALITÉ (Flake8) ET SÉCURITÉ DU CODE (Bandit)
+# ----------------------------------------------------------------------------
+def _outil(*args):
+    """Lance un outil Python (flake8, bandit) sur le projet et renvoie le résultat."""
+    return subprocess.run(  # nosec B603
+        [sys.executable, "-m", *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _bandit(*args):
+    """Lance bandit en sortie JSON et renvoie la liste des problèmes trouvés."""
+    result = _outil("bandit", "-f", "json", *args)
+    return json.loads(result.stdout)["results"]
+
+
+def _format_problemes(problemes):
+    return "Failles bandit :\n" + "\n".join(
+        f"{p['filename']}:{p['line_number']} [{p['test_id']}] {p['issue_text']}"
+        for p in problemes
+    )
+
+
+class TestQualiteSecurite:
+    def test_flake8_aucune_erreur_de_style(self):
+        result = _outil("flake8", *PROJECT_FILES, TEST_FILE)
+        assert result.returncode == 0, f"Erreurs flake8 :\n{result.stdout}"
+        print("\n  flake8 : aucune erreur de style")
+
+    def test_bandit_aucune_faille_dans_le_code(self):
+        problemes = _bandit(*PROJECT_FILES)
+        assert problemes == [], _format_problemes(problemes)
+        print("\n  bandit : aucune faille dans le code")
+
+    def test_bandit_aucune_faille_dans_les_tests(self):
+        # B101 (assert) ignoré : pytest repose sur assert
+        problemes = _bandit("-s", "B101", TEST_FILE)
+        assert problemes == [], _format_problemes(problemes)
+        print("\n  bandit : aucune faille dans les tests")
